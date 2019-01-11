@@ -1,0 +1,381 @@
+
+# to do 
+
+- add damage modifiers: damage of weapon, wounds per model; find distribution of inflicted wounds taking no splash into account. 
+- add re rolls. 
+- add modifiers and their interaction with re rolls.
+
+```{r}
+
+# dependencies
+library(pbapply)
+library(tidyverse)
+library(plotrix)
+library(timesavers)
+library(patchwork)
+library(viridisLite)
+
+```
+
+```{r}
+
+# function for dice rolls
+
+# nb set ignore_wound_criterion to 7 or more for an absence of a feel no pain/disgustingly resilient etc rule
+
+roll_dice <- function(shots_or_attacks, 
+                      balistic_or_weapon_skill, 
+                      reroll_to_hit_all        = FALSE,
+                      reroll_to_hit_ones       = FALSE,
+                      hit_modifier             = 0,
+                      strength, 
+                      toughness, 
+                      reroll_to_wound_all      = FALSE,
+                      reroll_to_wound_ones     = FALSE,
+                      wound_modifier           = 0,
+                      save, 
+                      save_modifier            = 0,
+                      reroll_saves_all         = FALSE,
+                      reroll_saves_ones        = FALSE,
+                      ignore_wound_criterion   = 7,      # is wound ignoring done before or after damage multipliers?
+                      damage                   = 1,
+                      wounds_per_target        = 3) {
+  
+  # strength vs toughness
+  wound_criterion  <- 
+    if (strength/toughness <= 0.5) {
+      6
+    } else if (strength/toughness >= 2) {
+      2
+    } else if (strength/toughness < 1) {
+      5
+    } else if (strength/toughness > 1) {
+      3
+    } else {
+      4
+    }
+  
+  # find N hits
+  if (reroll_to_hit_all == FALSE & reroll_to_hit_ones == FALSE){
+    # roll to hit
+    hit_rolls           <- sample(1:6, shots_or_attacks, replace = TRUE)
+    # add modifiers
+    hit_rolls_modified  <- hit_rolls + hit_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    hit_rolls_modified[hit_rolls_modified < 1] = 1 
+    # find number of hits
+    hits <- sum(hit_rolls_modified >= balistic_or_weapon_skill)
+  } else if (reroll_to_hit_all) {
+    # roll to hit
+    hit_rolls           <- sample(1:6, shots_or_attacks, replace = TRUE)
+    # fine natural hits
+    hits_natural        <- hit_rolls[hit_rolls >= balistic_or_weapon_skill]
+    n_hits_natural      <- length(hits_natural)
+    # make a number of rerolls equal to the number of shots - natural hits 
+    hit_rerolls         <- sample(1:6, shots_or_attacks - n_hits_natural, replace = TRUE)
+    # combine the raw natural rolls and rerolls
+    hit_rolls_combined  <- append(hits_natural, hit_rerolls)
+    # add modifiers. this is done after rerolls as 40k 8th edition specifies modifier are applied after rerolls.
+    hit_rolls_modified  <- hit_rolls_combined + hit_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    hit_rolls_modified[hit_rolls_modified < 1] = 1 
+    # find number of hits
+    hits <- sum(hit_rolls_modified >= balistic_or_weapon_skill)
+  } else if (reroll_to_hit_ones) {
+    # roll to hit
+    hit_rolls           <- sample(1:6, shots_or_attacks, replace = TRUE)
+    # fine natural hits
+    hits_natural        <- hit_rolls[hit_rolls >= balistic_or_weapon_skill]
+    # make a number of rerolls equal to the number of shots - natural hits 
+    hit_rerolls         <- sample(1:6, sum(hit_rolls == 1), replace = TRUE)
+    # combine the raw natural rolls and rerolls
+    hit_rolls_combined  <- append(hits_natural, hit_rerolls)
+    # add modifiers. this is done after rerolls as 40k 8th edition specifies modifier are applied after rerolls.
+    hit_rolls_modified  <- hit_rolls_combined + hit_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    hit_rolls_modified[hit_rolls_modified < 1] = 1 
+    # find number of hits
+    hits <- sum(hit_rolls_modified >= balistic_or_weapon_skill)
+  }
+  
+  # find N wounds
+  if (reroll_to_wound_all == FALSE & reroll_to_wound_ones == FALSE){
+    # roll to wound
+    wound_rolls           <- sample(1:6, hits, replace = TRUE)
+    # add modifiers
+    wound_rolls_modified  <- wound_rolls + wound_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    wound_rolls_modified[wound_rolls_modified < 1] = 1 
+    # find number of wounds
+    wounds <- sum(wound_rolls_modified >= wound_criterion)
+  } else if (reroll_to_wound_all) {
+    # roll to wound
+    wound_rolls           <- sample(1:6, hits, replace = TRUE)
+    # fine natural wounds
+    wounds_natural        <- wound_rolls[wound_rolls >= wound_criterion]
+    n_wounds_natural      <- length(wounds_natural)
+    # make a number of rerolls equal to the number of shots - natural wounds 
+    wound_rerolls         <- sample(1:6, shots_or_attacks - n_wounds_natural, replace = TRUE)
+    # combine the raw natural rolls and rerolls
+    wound_rolls_combined  <- append(wounds_natural, wound_rerolls)
+    # add modifiers. this is done after rerolls as 40k 8th edition specifies modifier are applied after rerolls.
+    wound_rolls_modified  <- wound_rolls_combined + wound_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    wound_rolls_modified[wound_rolls_modified < 1] = 1 
+    # find number of wounds
+    wounds <- sum(wound_rolls_modified >= wound_criterion)
+  } else if (reroll_to_wound_ones) {
+    # roll to wound
+    wound_rolls           <- sample(1:6, hits, replace = TRUE)
+    # fine natural wounds
+    wounds_natural        <- wound_rolls[wound_rolls >= wound_criterion]
+    # make a number of rerolls equal to the number of shots - natural wounds 
+    wound_rerolls         <- sample(1:6, sum(wound_rolls == 1), replace = TRUE)
+    # combine the raw natural rolls and rerolls
+    wound_rolls_combined  <- append(wounds_natural, wound_rerolls)
+    # add modifiers. this is done after rerolls as 40k 8th edition specifies modifier are applied after rerolls.
+    wound_rolls_modified  <- wound_rolls_combined + wound_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    wound_rolls_modified[wound_rolls_modified < 1] = 1 
+    # find number of wounds
+    wounds <- sum(wound_rolls_modified >= wound_criterion)
+  }
+  
+  # find N armour saves
+  if (reroll_saves_all == FALSE & reroll_saves_ones == FALSE){
+    # roll to wound
+    armour_save_rolls           <- sample(1:6, wounds, replace = TRUE)
+    # add modifiers
+    armour_save_rolls_modified  <- armour_save_rolls + save_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    armour_save_rolls_modified[armour_save_rolls_modified < 1] = 1 
+    # find number of failed armour saves
+    failed_armour_saves <- sum(armour_save_rolls_modified < save)
+  } else if (reroll_saves_all) {
+    # roll to wound
+    armour_save_rolls           <- sample(1:6, wounds, replace = TRUE)
+    # fine natural failed armour saves
+    failed_armour_saves_natural <- armour_save_rolls[armour_save_rolls < save]
+    n_armour_saves_natural      <- length(failed_armour_saves_natural)
+    # make a number of rerolls equal to the number of shots - natural armour_save 
+    armour_save_rerolls         <- sample(1:6, shots_or_attacks - n_armour_saves_natural, replace = TRUE)
+    # combine the raw natural rolls and rerolls
+    armour_save_rolls_combined  <- append(armour_save_rolls, armour_save_rerolls)
+    # add modifiers. this is done after rerolls as 40k 8th edition specifies modifier are applied after rerolls.
+    armour_save_rolls_modified  <- armour_save_rolls_combined + save_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    armour_save_rolls_modified[armour_save_rolls_modified < 1] = 1 
+    # find number of failed armour saves
+    failed_armour_saves <- sum(armour_save_rolls_modified < save)
+  } else if (reroll_saves_ones) {
+    # roll to wound
+    armour_save_rolls           <- sample(1:6, wounds, replace = TRUE)
+    # fine natural wounds
+    failed_armour_saves_natural <- armour_save_rolls[armour_save_rolls < save]
+    # make a number of rerolls equal to the number of shots - natural wounds 
+    armour_save_rerolls         <- sample(1:6, sum(armour_save_rolls == 1), replace = TRUE)
+    # combine the raw natural rolls and rerolls
+    armour_save_rolls_combined  <- append(armour_save_rolls, armour_save_rerolls)
+    # add modifiers. this is done after rerolls as 40k 8th edition specifies modifier are applied after rerolls.
+    armour_save_rolls_modified  <- armour_save_rolls_combined + save_modifier
+    # convert rolls less than 1 to 1, as rolls have a hard lower bound regardless of modifiers
+    armour_save_rolls_modified[armour_save_rolls_modified < 1] = 1 
+    # find number of wounds
+    failed_armour_saves <- sum(armour_save_rolls_modified < save)
+  }
+  
+  # roll ignore wounds (feel no pain, disgustingly resiliant, etc)
+  failed_armour_saves_not_ignored <- sum(sample(1:6, failed_armour_saves, replace = TRUE) < ignore_wound_criterion)
+  
+  # damage_vector <- c(rep(damage, failed_armour_saves_not_ignored))
+  # 
+  # n_dead <- sum(damage_vector >= wounds_per_target)
+  # n_dead
+  # 
+  # wounds_per_targets    <- c(rep(wounds_per_target, failed_armour_saves_not_ignored))
+  # n_wounds_by_n_targets <- damage_vector - wounds_per_targets
+  # n_wounds_by_n_targets
+  
+  return(data.frame(max_models_losing_wounds  = failed_armour_saves_not_ignored,
+                    wounds_lost_per_model     = damage*-1,
+                    n_completely_dead         = (damage >= wounds_per_target)*failed_armour_saves_not_ignored))
+}
+
+# eg
+roll_dice(shots_or_attacks         = 10, 
+          balistic_or_weapon_skill = 3, 
+          reroll_to_hit_all        = FALSE,
+          reroll_to_hit_ones       = FALSE,
+          hit_modifier             = 1,
+          strength                 = 16, 
+          toughness                = 8, 
+          reroll_to_wound_all      = FALSE,
+          reroll_to_wound_ones     = FALSE,
+          wound_modifier           = 0,
+          save                     = 4, 
+          save_modifier            = 0,
+          reroll_saves_all         = FALSE,
+          reroll_saves_ones        = FALSE,
+          ignore_wound_criterion   = 7,
+          damage                   = 3,
+          wounds_per_target        = 28)
+
+# needs work to correct the wounds_lost_per_model for the number of models in the squad, eg the max splash. if its a knight, all the wounds can come from this model. if its a gaunt, no splash limits damage. 
+
+```
+
+# simulate many dice rolls
+
+```{r}
+
+# model stats
+shots_or_attacks         = 24
+balistic_or_weapon_skill = 3
+reroll_to_hit_all        = FALSE
+reroll_to_hit_ones       = FALSE
+hit_modifier             = 0
+strength                 = 6
+toughness                = 4
+reroll_to_wound_all      = FALSE
+reroll_to_wound_ones     = FALSE
+wound_modifier           = 0
+save                     = 3
+save_modifier            = 0
+reroll_saves_all         = FALSE
+reroll_saves_ones        = FALSE
+ignore_wound_criterion   = 7  # set to 7 or more for an absence of a feel no pain/disgustingly resilient etc rule
+damage                   = 3
+wounds_per_target        = 28
+
+
+# simulate large number of dice rolls
+n_sims <- 100000
+
+sims <- 
+  data.frame(wounds_inflicted = pbreplicate(n_sims,   # can change to pbreplicate if a progress bar is needed
+                                            roll_dice(shots_or_attacks         = shots_or_attacks, 
+                                                      balistic_or_weapon_skill = balistic_or_weapon_skill, 
+                                                      reroll_to_hit_all        = reroll_to_hit_all,
+                                                      reroll_to_hit_ones       = reroll_to_hit_ones,
+                                                      strength                 = strength, 
+                                                      toughness                = toughness, 
+                                                      reroll_to_wound_all      = reroll_to_wound_all,
+                                                      reroll_to_wound_ones     = reroll_to_wound_ones,
+                                                      save                     = save,
+                                                      reroll_saves_all         = reroll_saves_all,
+                                                      reroll_saves_ones        = reroll_saves_ones,
+                                                      ignore_wound_criterion   = ignore_wound_criterion,
+                                                      damage                   = damage,
+                                                      wounds_per_target        = wounds_per_target)))
+
+# summarize sims
+## summary stats
+summary_stats <- sims %>%
+  summarize(median = median(wounds_inflicted),
+            mean = mean(wounds_inflicted),
+            se = std.error(wounds_inflicted),
+            sd = sd(wounds_inflicted),
+            z = mean/sd) %>%
+  round_df(2)
+
+## probability distributions
+probabilities <- sims %>%
+  count(wounds_inflicted) %>%
+  mutate(probability = n/n_sims) %>%
+  select(wounds_inflicted, probability) %>%
+  arrange(-probability) %>%
+  mutate(cumulative_probability = cumsum(probability)) %>%
+  round_df(2)
+
+# probability intervals
+interval_.50 <- probabilities %>%
+  mutate(inside_interval = ifelse(cumulative_probability <= 0.50, TRUE, FALSE)) %>%
+  filter(inside_interval == TRUE) %>%
+  summarize(lower = min(wounds_inflicted),
+            upper = max(wounds_inflicted)) %>%
+  mutate(probability_interval = 0.50)
+
+interval_.80 <- probabilities %>%
+  mutate(inside_interval = ifelse(cumulative_probability <= 0.75, TRUE, FALSE)) %>%
+  filter(inside_interval == TRUE) %>%
+  summarize(lower = min(wounds_inflicted),
+            upper = max(wounds_inflicted)) %>%
+  mutate(probability_interval = 0.80)
+
+interval_.90 <- probabilities %>%
+  mutate(inside_interval = ifelse(cumulative_probability <= 0.95, TRUE, FALSE)) %>%
+  filter(inside_interval == TRUE) %>%
+  summarize(lower = min(wounds_inflicted),
+            upper = max(wounds_inflicted)) %>%
+  mutate(probability_interval = 0.90)
+
+intervals <- rbind(interval_.50, 
+                   interval_.80, 
+                   interval_.90) %>%
+  select(probability_interval, lower, upper)
+
+# tables
+
+summary_stats
+#probabilities
+intervals
+
+# plots
+p1 <- ggplot() +
+  geom_line(data = probabilities, aes(wounds_inflicted, probability)) +
+  xlab("") +
+  ylab("Probability")
+
+p2 <- ggplot() +
+  geom_point(data = summary_stats, aes(mean, "Mean"),
+             size = 2) +
+  xlim(min(probabilities$wounds_inflicted), max(probabilities$wounds_inflicted)) +
+  xlab("") +
+  ylab("")
+
+colors <- viridis(3, alpha = 1, begin = 0, end = 0.8, direction = -1, option = "D")
+
+p3 <- ggplot() +
+  geom_linerange(data = interval_.90, aes(ymin = lower, 
+                                          ymax = upper, 
+                                          "Intervals"), 
+                 color = colors[1],
+                 size = 0.6) +
+  geom_linerange(data = interval_.80, aes(ymin = lower, 
+                                          ymax = upper, 
+                                          "Intervals"), 
+                 color = colors[2],
+                 size = 1) +
+  geom_linerange(data = interval_.50, aes(ymin = lower, 
+                                          ymax = upper, 
+                                          "Intervals"), 
+                 color = colors[3],
+                 size = 1.4) +
+  geom_point(data = summary_stats, aes("Intervals", median),
+             size = 2) +
+  ylim(min(probabilities$wounds_inflicted), max(probabilities$wounds_inflicted)) +
+  xlab("") +
+  ylab("") +
+  coord_flip()
+
+## combine plots
+combined_plot <- p1 + p2 + p3 + plot_layout(ncol = 1, heights = c(4, 1, 1))
+
+combined_plot
+
+```
+
+```{r}
+
+# # Here i was looking to create a probability or ratio that captured the ratio between magnitude and uncertainty. 
+# # at the time i thought p values might capture this, but it maybe needs thought.
+# summary_stats$z
+# 2*pnorm(abs(summary_stats$z), lower.tail = FALSE)
+# # could use the median/MAD for a more robust alternative to this?
+
+```
+
+
+
+
+
