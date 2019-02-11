@@ -185,9 +185,9 @@ roll_dice <- function(shots_or_attacks,
   n_non_fatal_wounds_on_last_minature <- failed_armour_saves_not_ignored - n_killed*n_dice_per_kill
   
   if (n_non_fatal_wounds_on_last_minature != 0) {
-    result <- paste(n_killed, "models were killed outright, with one additional model suffering", n_non_fatal_wounds_on_last_minature, "wound(s).")
+    result <- paste(n_killed, "models were killed outright, with one additional model suffering", n_non_fatal_wounds_on_last_minature, "wound(s)")
   } else {
-    result <- paste(n_killed, "models were killed outright.")
+    result <- paste(n_killed, "models were killed outright")
   }
   
   return(list(result                               = result,
@@ -306,7 +306,7 @@ ui <-
                         
                         actionButton("roll", "Roll dice"),
                         
-                        p(textOutput("results_text"))
+                        h3(textOutput("results_text"))
                         
                       )
              )
@@ -343,6 +343,7 @@ server <- function(input, output) {
   
   output$results_text <- renderText({
     
+    Sys.sleep(1.5)
     event_roll_dice()
     
   })
