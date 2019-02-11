@@ -1,0 +1,13 @@
+name: Quanthammer
+title: Quanthammer
+username:
+account: mmmdata
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 708021
+bundleId: 1869768
+url: https://mmmdata.shinyapps.io/Quanthammer/
+when: 1549915165.33811
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .gitattributes|dice sim.Rmd|README.md|test.R
