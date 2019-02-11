@@ -5,9 +5,9 @@ account: mmmdata
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 708021
-bundleId: 1869798
+bundleId: 1870032
 url: https://mmmdata.shinyapps.io/Quanthammer/
-when: 1549915928.95719
+when: 1549921577.17699
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: .gitattributes|autoinvalidate.R|dice sim.Rmd|README.md|test.R
+ignoredFiles: .gitattributes|dice sim.Rmd|test.R

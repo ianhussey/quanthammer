@@ -6,8 +6,12 @@
 
 library(shiny)
 library(tidyverse)
+library(patchwork)
 #library(pbapply)
-#library(viridisLite)
+
+
+# values
+n_sims <- 2000
 
 
 # functions ----
@@ -202,7 +206,7 @@ ui <-
   
   navbarPage("Quanthammer",
              
-             # tab 1 - overview ----
+             ## tab 1 - roll dice ----
              tabPanel("Roll dice",  
                       
                       # Sidebar panel for inputs
@@ -309,6 +313,119 @@ ui <-
                         h3(textOutput("results_text"))
                         
                       )
+             ),
+             
+             ## tab 2 - simulation ----
+             tabPanel("Simulate probabilities",  
+                      
+                      # Sidebar panel for inputs
+                      sidebarPanel(
+                        
+                        # input
+                        numericInput(inputId = "shots_or_attacks", 
+                                     label = "Attacks (A or gun stat, eg 'Assault 2')", 
+                                     value = 20, 
+                                     min = 1, 
+                                     max = NA),
+                        
+                        numericInput(inputId = "balistic_or_weapon_skill", 
+                                     label = "Ballistic/Weapon skill (BS/WS)", 
+                                     value = 3, 
+                                     min = 2, 
+                                     max = 6),
+                        
+                        numericInput(inputId = "strength", 
+                                     label = "Strength (S)", 
+                                     value = 4, 
+                                     min = 1, 
+                                     max = 30),
+                        
+                        numericInput(inputId = "toughness", 
+                                     label = "Toughness (T)", 
+                                     value = 4, 
+                                     min = 1, 
+                                     max = 30),
+                        
+                        numericInput(inputId = "save",
+                                     label = "Save (Sv)", 
+                                     value = 3, 
+                                     min = 2, 
+                                     max = 7),
+                        
+                        numericInput(inputId = "damage",
+                                     label = "Damage (D)", 
+                                     value = 1, 
+                                     min = 1, 
+                                     max = 10),
+                        
+                        numericInput(inputId = "wounds_per_target",
+                                     label = "Wounds per target (W)", 
+                                     value = 1, 
+                                     min = 1, 
+                                     max = 100),
+                        
+                        numericInput(inputId = "hit_modifier", 
+                                     label = "Hit roll modifier", 
+                                     value = 0, 
+                                     min = 0, 
+                                     max = 5),
+                        
+                        numericInput(inputId = "wound_modifier", 
+                                     label = "Wound roll modifier", 
+                                     value = 0, 
+                                     min = 0, 
+                                     max = 5),
+                        
+                        numericInput(inputId = "save_modifier",
+                                     label = "Save modifier", 
+                                     value = 0, 
+                                     min = 0, 
+                                     max = 7),
+                        
+                        # reroll_to_hit_all
+                        # reroll_to_hit_ones
+                        selectInput(inputId = "reroll_to_hit", 
+                                    label = "Reroll to hit",
+                                    choices = c("None"  = "none",
+                                                "Reroll ones"  = "ones",
+                                                "Reroll all" = "all")),
+                        
+                        # reroll_to_wound_all
+                        # reroll_to_wound_ones
+                        selectInput(inputId = "reroll_to_wound", 
+                                    label = "Reroll to wount",
+                                    choices = c("None"  = "none",
+                                                "Reroll ones"  = "ones",
+                                                "Reroll all" = "all")),
+                        
+                        # reroll_saves_all
+                        # reroll_saves_ones
+                        selectInput(inputId = "reroll_saves", 
+                                    label = "Reroll to save",
+                                    choices = c("None"  = "none",
+                                                "Reroll ones"  = "ones",
+                                                "Reroll all" = "all")),
+                        
+                        numericInput(inputId = "ignore_wound_criterion",
+                                     label = "Ignore wound special rule (e.g., feel no pain)", 
+                                     value = 7, 
+                                     min = 2, 
+                                     max = 7)
+                        
+                      ),
+                      
+                      # Main panel for displaying outputs
+                      mainPanel(
+                        
+                        actionButton("run_sim", "Run simulation"),
+                        
+                        p("Plot displays (a) the probability distribution, (b) the mean kills, and (c) the median, 80% and 90% decile intervals."),
+
+                        p("Other mathhammer apps usually rely on the mean, however this is a bad choice of statistic as the probabilities are heavily skew. As such, the mean will usually overestimate the nummber of kills. The median gives a better estimate of this, as it represents the most probable roll. Its intervals, in different colors and thicknesses, are informative as to your probability of rolling over or under a given number of kills with a given probability. In any given instance, it can be more useful to know that you have, for example, a 95% chance of killing at least X figures than knowing you will make Y kills per turn on average."),
+                        
+                        plotOutput("plot")
+                        
+                      )
              )
   )
 
@@ -316,7 +433,8 @@ ui <-
 # server ----
 
 server <- function(input, output) {
-  
+   
+  # tab 1 - roll dice ----
   event_roll_dice <- eventReactive(input$roll, {
     
     results_text <- roll_dice(shots_or_attacks         = input$shots_or_attacks,
@@ -337,7 +455,7 @@ server <- function(input, output) {
                               damage                   = input$damage,
                               wounds_per_target        = input$wounds_per_target)
     
-    results_text$result
+    return(results_text$result)
     
   })
   
@@ -347,6 +465,213 @@ server <- function(input, output) {
     event_roll_dice()
     
   })
+  
+  # tab 2 - simulation ----
+  event_run_simulation <- eventReactive(input$run_sim, {
+    
+    # run simulation
+    simulation_summary_list = list()
+
+    for (i in 1:n_sims) {
+
+      sim <- roll_dice(shots_or_attacks         = input$shots_or_attacks,
+                       balistic_or_weapon_skill = input$balistic_or_weapon_skill,
+                       reroll_to_hit_all        = ifelse(input$reroll_to_hit == "all", TRUE, FALSE),
+                       reroll_to_hit_ones       = ifelse(input$reroll_to_hit == "ones", TRUE, FALSE),
+                       hit_modifier             = input$hit_modifier,
+                       strength                 = input$strength,
+                       toughness                = input$toughness,
+                       reroll_to_wound_all      = ifelse(input$reroll_to_wound == "all", TRUE, FALSE),
+                       reroll_to_wound_ones     = ifelse(input$reroll_to_wound == "ones", TRUE, FALSE),
+                       wound_modifier           = input$wound_modifier,
+                       save                     = input$save,
+                       save_modifier            = input$save_modifier,
+                       reroll_saves_all         = ifelse(input$reroll_saves == "all", TRUE, FALSE),
+                       reroll_saves_ones        = ifelse(input$reroll_saves == "ones", TRUE, FALSE),
+                       ignore_wound_criterion   = input$ignore_wound_criterion,
+                       damage                   = input$damage,
+                       wounds_per_target        = input$wounds_per_target)
+
+      sim$k_sim <- i
+      simulation_summary_list[[i]] <- sim
+    }
+
+    # flatten list to data frame
+    simulation_results <- dplyr::bind_rows(simulation_summary_list)
+
+    # rehape
+    reshaped_simulation_results <- simulation_results %>%
+      select(k_sim, n_killed, n_non_fatal_wounds_on_last_minature) %>%
+      gather(type, count, c(n_killed, n_non_fatal_wounds_on_last_minature))
+
+
+    # summarize sim results
+
+    ## probability distributions
+    probabilities <- reshaped_simulation_results %>%
+      group_by(type) %>%
+      count(count) %>%
+      mutate(probability = n/n_sims) %>%
+      select(type, count, n, probability) %>%
+      arrange(-probability) %>%
+      mutate(cumulative_probability = cumsum(probability))
+
+    # probability intervals
+    interval_.50 <- probabilities %>%
+      group_by(type) %>%
+      mutate(inside_interval = ifelse(cumulative_probability <= 0.50, TRUE, FALSE)) %>%
+      filter(inside_interval == TRUE) %>%
+      summarize(lower = min(count),
+                upper = max(count)) %>%
+      mutate(probability_interval = 0.50)
+
+    interval_.80 <- probabilities %>%
+      group_by(type) %>%
+      mutate(inside_interval = ifelse(cumulative_probability <= 0.75, TRUE, FALSE)) %>%
+      filter(inside_interval == TRUE) %>%
+      summarize(lower = min(count),
+                upper = max(count)) %>%
+      mutate(probability_interval = 0.80)
+
+    interval_.90 <- probabilities %>%
+      group_by(type) %>%
+      mutate(inside_interval = ifelse(cumulative_probability <= 0.95, TRUE, FALSE)) %>%
+      filter(inside_interval == TRUE) %>%
+      summarize(lower = min(count),
+                upper = max(count)) %>%
+      mutate(probability_interval = 0.90)
+
+    intervals <- rbind(interval_.50,
+                       interval_.80,
+                       interval_.90) %>%
+      select(type, probability_interval, lower, upper) %>%
+      arrange(type)
+
+
+    # kills
+    probabilities_kills <- probabilities %>%
+      filter(type == "n_killed")
+    interval_.90_kills <- interval_.90 %>%
+      filter(type == "n_killed")
+    interval_.80_kills <- interval_.80 %>%
+      filter(type == "n_killed")
+    interval_.50_kills <- interval_.50 %>%
+      filter(type == "n_killed")
+    
+    # # non fatal wounds
+    # probabilities_remaining_wounds <- probabilities %>%
+    #   filter(type == "n_non_fatal_wounds_on_last_minature")
+    # interval_.90_remaining_wounds <- interval_.90 %>%
+    #   filter(type == "n_non_fatal_wounds_on_last_minature")
+    # interval_.80_remaining_wounds <- interval_.80 %>%
+    #   filter(type == "n_non_fatal_wounds_on_last_minature")
+    # interval_.50_remaining_wounds <- interval_.50 %>%
+    #   filter(type == "n_non_fatal_wounds_on_last_minature")
+    
+    # summary stats
+    summary_stats <- reshaped_simulation_results %>%
+      group_by(type) %>%
+      summarize(median = median(count, na.rm = TRUE),
+                mean = mean(count, na.rm = TRUE))
+    
+    summary_stats_kills <- summary_stats %>%
+      filter(type == "n_killed")
+  
+    # summary_stats_remaining_wounds <- summary_stats %>%
+    #   filter(type == "n_non_fatal_wounds_on_last_minature")
+    
+    
+    # plots
+    colors <- viridis(3, alpha = 1, begin = 0, end = 0.8, direction = -1, option = "D")
+    
+    p1 <- ggplot() +
+      #ggtitle("Number of kills") +
+      #geom_line(data = probabilities_kills, aes(count, probability)) +
+      geom_smooth(data = probabilities_kills, aes(count, probability), method = "loess", se = FALSE) +
+      xlab("") +
+      ylab("Probability")
+
+    p2 <- ggplot() +
+      geom_point(data = summary_stats_kills, aes(mean, "Mean"),
+                 size = 2) +
+      xlim(min(probabilities_kills$count), max(probabilities_kills$count)) +
+      xlab("") +
+      ylab("")
+
+    p3 <- ggplot() +
+      geom_linerange(data = interval_.90_kills, aes(ymin = lower,
+                                                    ymax = upper,
+                                                    "Intervals"),
+                     color = colors[1],
+                     size = 0.6) +
+      geom_linerange(data = interval_.80_kills, aes(ymin = lower,
+                                                    ymax = upper,
+                                                    "Intervals"),
+                     color = colors[2],
+                     size = 1) +
+      geom_linerange(data = interval_.50_kills, aes(ymin = lower,
+                                                    ymax = upper,
+                                                    "Intervals"),
+                     color = colors[3],
+                     size = 1.4) +
+      geom_point(data = summary_stats_kills, aes("Intervals", median),
+                 size = 2) +
+      ylim(min(probabilities_kills$count), max(probabilities_kills$count)) +
+      xlab("") +
+      ylab("") +
+      coord_flip()
+    
+    # # plots
+    # p4 <- ggplot() +
+    #   ggtitle("Number of non-fatal wounds") +
+    #   geom_line(data = probabilities_remaining_wounds, aes(count, probability)) +
+    #   xlab("") +
+    #   ylab("Probability")
+    # 
+    # p5 <- ggplot() +
+    #   geom_point(data = summary_stats_remaining_wounds, aes(mean, "Mean"),
+    #              size = 2) +
+    #   xlim(min(probabilities_remaining_wounds$count), max(probabilities_remaining_wounds$count)) +
+    #   xlab("") +
+    #   ylab("")
+    # 
+    # p6 <- ggplot() +
+    #   geom_linerange(data = interval_.90_remaining_wounds, aes(ymin = lower, 
+    #                                                            ymax = upper, 
+    #                                                            "Intervals"), 
+    #                  color = colors[1],
+    #                  size = 0.6) +
+    #   geom_linerange(data = interval_.80_remaining_wounds, aes(ymin = lower, 
+    #                                                            ymax = upper, 
+    #                                                            "Intervals"), 
+    #                  color = colors[2],
+    #                  size = 1) +
+    #   geom_linerange(data = interval_.50_remaining_wounds, aes(ymin = lower, 
+    #                                                            ymax = upper, 
+    #                                                            "Intervals"), 
+    #                  color = colors[3],
+    #                  size = 1.4) +
+    #   geom_point(data = summary_stats_remaining_wounds, aes("Intervals", median),
+    #              size = 2) +
+    #   ylim(min(probabilities_remaining_wounds$count), max(probabilities_remaining_wounds$count)) +
+    #   xlab("") +
+    #   ylab("") +
+    #   coord_flip()
+    
+    ## combine plots
+    #combined_plot <- p1 + p3 + p4 + p6 + plot_layout(ncol = 1, heights = c(4, 1, 4, 1))
+    combined_plot <- p1 + p2 + p3 + plot_layout(ncol = 1, heights = c(4, 1, 1))
+    
+    # return plot
+    return(combined_plot)
+
+  })
+  
+  output$plot <- renderPlot(
+    
+    event_run_simulation()
+    
+  )
   
 }
 
